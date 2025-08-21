@@ -24,8 +24,8 @@ An automated attendance tracking bot for CyberVidya Learning Management System t
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/Harshit-Patel01/Cyber_Vidya_Attendance_Bot.git
-   cd Cyber_Vidya_Attendance_Bot
+   git clone https://github.com/Harshit-Patel01/attendance_checker.git
+   cd attendance_checker
    ```
 
 2. Install dependencies:
