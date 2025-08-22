@@ -1,0 +1,5 @@
+# nixpacks.toml
+
+[phases.setup]
+# Add git to the environment
+nixPkgs = ["git"]
