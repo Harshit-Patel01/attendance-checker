@@ -99,29 +99,74 @@ function setup_git_ssh() {
   return true;
 }
 
-function commit_and_push() {
-  if (!setup_git_ssh()) return;
+async function commit_and_push() {
+  const execAsync = (command) => {
+    console.log(`Executing: ${command}`);
+    try {
+      const output = execSync(command, { encoding: 'utf8' });
+      console.log(`Output: ${output}`);
+      return output;
+    } catch (error) {
+      console.error(`Command failed: ${command}`);
+      console.error(`Error: ${error.message}`);
+      console.error(`Stdout: ${error.stdout}`);
+      console.error(`Stderr: ${error.stderr}`);
+      throw error;
+    }
+  };
 
   try {
-    execSync('git config --global user.name "Railway Cron"');
-    execSync('git config --global user.email "railway-cron@example.com"');
-
-    const repo_url = `git@github.com:${process.env.GITHUB_REPOSITORY}.git`;
-    execSync(`git remote set-url origin ${repo_url}`);
-
-    execSync(`git add ${STATE_FILE}`);
-
-    const status = execSync('git status --porcelain').toString();
-    if (status.includes(STATE_FILE)) {
-      const commit_message = `Update attendance state on ${new Date().toISOString()}`;
-      execSync(`git commit -m "${commit_message}"`);
-      execSync('git push origin HEAD:main');
-      console.log("Changes pushed to the repository.");
-    } else {
-      console.log("No changes to commit.");
+    // Check if we're in a git repository
+    try {
+      execAsync('git rev-parse --is-inside-work-tree');
+    } catch (e) {
+      console.log('Not in a git repository, initializing...');
+      execAsync('git init');
+      execAsync(`git remote add origin git@github.com:${process.env.GITHUB_REPOSITORY}.git`);
     }
-  } catch (e) {
-    console.log(`Failed to push changes: ${e.message}`);
+
+    // Add the file and check status
+    execAsync(`git add ${STATE_FILE}`);
+    const status = execAsync('git status --porcelain').toString();
+    
+    if (status.includes(STATE_FILE)) {
+      // Get the current branch
+      let branch;
+      try {
+        branch = execAsync('git rev-parse --abbrev-ref HEAD').trim();
+      } catch (e) {
+        console.log('No branch found, creating main branch...');
+        execAsync('git checkout -b main');
+        branch = 'main';
+      }
+
+      const commit_message = `Update attendance state on ${new Date().toISOString()}`;
+      execAsync(`git commit -m "${commit_message}"`);
+      
+      // Try to pull first to avoid conflicts
+      try {
+        execAsync(`git pull origin ${branch} --rebase`);
+      } catch (e) {
+        console.log('Pull failed, continuing with push...');
+      }
+
+      // Push changes
+      execAsync(`git push origin ${branch}`);
+      console.log("Changes successfully pushed to the repository.");
+    } else {
+      console.log("No changes detected in the state file.");
+    }
+  } catch (error) {
+    console.error('Git operation failed:', error);
+    // Log the git status and configuration for debugging
+    try {
+      console.log('\n=== Git Debug Information ===');
+      execAsync('git status');
+      execAsync('git remote -v');
+      execAsync('git config --list');
+    } catch (e) {
+      console.error('Failed to get debug information:', e);
+    }
   }
 }
 
