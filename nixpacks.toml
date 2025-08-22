@@ -2,4 +2,4 @@
 
 [phases.setup]
 # Add git to the environment
-nixPkgs = ["git"]
+aptPkgs = ["git"]
