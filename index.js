@@ -107,22 +107,40 @@ async function send_telegram(msg) {
   }
 }
 
-function calculate_attendance_message(course, present, total, status) {
-  const percentage = total > 0 ? (present / total * 100) : 0;
-  const status_emoji = status === "Present" ? "✅" : "❌";
-  let msg = `📘 *${course}*\n${status_emoji} Marked as *${status}*\nAttendance: ${present}/${total} (${percentage.toFixed(2)}%)`;
+function calculateAttendanceMessage(course, present, total, status) {
+    const percentage = total > 0 ? (present / total * 100) : 0;
+    
+    const statusEmoji = status === "Present" ? "✅" : "❌";
+    const statusText = status === "Present" ? "PRESENT" : "ABSENT";
+    
+    // Main header with course name
+    let msg = `📚 *${course}*\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `${statusEmoji} Status: ${statusText}\n`;
+    msg += `📊 Attendance: ${present}/${total} lectures\n`;
+    msg += `📈 Percentage: *${percentage.toFixed(1)}%*\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
 
-  if (percentage < 75) {
-    let x = Math.ceil((0.75 * total - present) / 0.25);
-    if (x < 0) x = 0;
-    msg += `\n⚠️ Below 75%! You must attend at least ${x} more lecture(s) in a row.`;
-  } else {
-    let y = Math.floor(present / 0.75 - total);
-    if (y < 0) y = 0;
-    msg += `\n✅ Safe! You can skip up to ${y} lecture(s) while staying ≥75%.`;
-  }
-  return msg;
+    if (percentage < 75) {
+        let x = Math.ceil((0.75 * total - present) / 0.25);
+        if (x < 0) x = 0;
+        msg += `⚠️ __CRITICAL ALERT__\n`;
+        msg += `📉 Below minimum requirement!\n`;
+        msg += `🎯 *Action Required:* Attend next ${x} lecture(s)\n`;
+        msg += `🔥 Missing classes could affect eligibility`;
+    } else {
+        let y = Math.floor(present / 0.75 - total);
+        if (y < 0) y = 0;
+        msg += `✅ __ATTENDANCE SECURE__\n`;
+        msg += `🎉 Above 75% requirement!\n`;
+        msg += `🏖 *Flexibility:* Can skip up to ${y} lecture(s)\n`;
+        msg += `💚 Keep up the excellent work!`;
+    }
+    
+    return msg;
 }
+
+module.exports = { calculateAttendanceMessage };
 
 // Git functionality removed to simplify the bot
 
