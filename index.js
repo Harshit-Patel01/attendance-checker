@@ -127,14 +127,12 @@ function calculate_attendance_message(course, present, total, status) {
         msg += `⚠️ __CRITICAL ALERT__\n`;
         msg += `📉 Below minimum requirement!\n`;
         msg += `🎯 *Action Required:* Attend next ${x} lecture(s)\n`;
-        msg += `🔥 Missing classes could affect eligibility`;
     } else {
         let y = Math.floor(present / 0.75 - total);
         if (y < 0) y = 0;
         msg += `✅ __ATTENDANCE SECURE__\n`;
         msg += `🎉 Above 75% requirement!\n`;
         msg += `🏖 *Flexibility:* Can skip up to ${y} lecture(s)\n`;
-        msg += `💚 Keep up the excellent work!`;
     }
     
     return msg;
