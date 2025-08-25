@@ -18,6 +18,157 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const database = getDatabase(firebaseApp);
 
+// Session management
+let currentSession = null;
+let lastLoginAttempt = null;
+let loginAttempts = 0;
+const MAX_LOGIN_ATTEMPTS = 3;
+const LOGIN_COOLDOWN = 30 * 60 * 1000; // 30 minutes
+const SESSION_RENEWAL_THRESHOLD = 20 * 60 * 60 * 1000; // 20 hours
+
+// Cache for failed login attempts
+const loginCache = {
+  attempts: 0,
+  lastAttempt: null,
+  resetTime: null
+};
+
+function canAttemptLogin() {
+  const now = Date.now();
+  
+  // If we're in cooldown period after multiple failures
+  if (loginCache.resetTime && now < loginCache.resetTime) {
+    console.log(`Login cooldown active. Wait ${Math.ceil((loginCache.resetTime - now) / 1000 / 60)} minutes`);
+    return false;
+  }
+
+  // If we've made too many attempts recently
+  if (lastLoginAttempt && (now - lastLoginAttempt) < getBackoffDelay()) {
+    console.log(`Login backoff active. Wait ${Math.ceil((getBackoffDelay() - (now - lastLoginAttempt)) / 1000)} seconds`);
+    return false;
+  }
+
+  // Reset attempts if it's been long enough
+  if (lastLoginAttempt && (now - lastLoginAttempt) > LOGIN_COOLDOWN) {
+    loginAttempts = 0;
+  }
+
+  return true;
+}
+
+function getBackoffDelay() {
+  // Exponential backoff: 2^attempts * 1000ms (1 second base)
+  return Math.min(Math.pow(2, loginAttempts) * 1000, LOGIN_COOLDOWN);
+}
+
+async function refreshSession(session) {
+  try {
+    console.log('Attempting to refresh session before expiry');
+    const { auth_pref, token } = await login();
+    const newSession = {
+      auth_pref,
+      token,
+      timestamp: new Date().toISOString()
+    };
+    
+    // Save new session to Firebase
+    const sessionRef = ref(database, 'session');
+    await set(sessionRef, newSession);
+    currentSession = newSession;
+    loginAttempts = 0; // Reset attempts on successful refresh
+    return newSession;
+  } catch (error) {
+    console.error('Session refresh failed:', error);
+    throw error;
+  }
+}
+
+async function getSession() {
+  try {
+    // Try to get session from Firebase first
+    const sessionRef = ref(database, 'session');
+    const snapshot = await get(sessionRef);
+    
+    if (snapshot.exists()) {
+      const session = snapshot.val();
+      if (session && session.timestamp) {
+        const sessionAge = Date.now() - new Date(session.timestamp).getTime();
+        
+        // If session is still valid
+        if (sessionAge < 23 * 60 * 60 * 1000) {
+          console.log('Using existing session');
+          currentSession = session;
+          
+          // If session is approaching expiry, try to refresh it proactively
+          if (sessionAge > SESSION_RENEWAL_THRESHOLD) {
+            console.log('Session approaching expiry, scheduling renewal');
+            // Schedule refresh but don't wait for it
+            refreshSession(session).catch(err => {
+              console.log('Background session refresh failed:', err);
+            });
+          }
+          
+          return session;
+        }
+      }
+    }
+    
+    // If we reach here, we need a new session
+    if (!canAttemptLogin()) {
+      if (currentSession) {
+        console.log('Reusing last known session despite age');
+        return currentSession;
+      }
+      throw new Error('LOGIN_RATE_LIMITED');
+    }
+    
+    // Check if we should create a new session based on time
+    const now = new Date();
+    const minutes = now.getMinutes();
+    
+    // Only create new session at XX:00 or XX:30
+    if (minutes === 0 || minutes === 30) {
+      console.log('Creating new session at scheduled time');
+      
+      // Track login attempt
+      loginAttempts++;
+      lastLoginAttempt = Date.now();
+      
+      try {
+        const { auth_pref, token } = await login();
+        currentSession = { 
+          auth_pref, 
+          token,
+          timestamp: new Date().toISOString()
+        };
+        
+        // Reset counters on successful login
+        loginAttempts = 0;
+        loginCache.attempts = 0;
+        loginCache.resetTime = null;
+        
+        // Save new session to Firebase
+        await set(sessionRef, currentSession);
+        return currentSession;
+      } catch (error) {
+        // Handle failed login attempt
+        loginCache.attempts++;
+        if (loginCache.attempts >= MAX_LOGIN_ATTEMPTS) {
+          loginCache.resetTime = Date.now() + LOGIN_COOLDOWN;
+          console.log(`Too many failed attempts. Cooling down until ${new Date(loginCache.resetTime)}`);
+        }
+        throw error;
+      }
+    } else {
+      console.log('Session expired, but waiting for next scheduled login time (XX:00 or XX:30)');
+      throw new Error('SESSION_WAIT_SCHEDULED_TIME');
+    }
+  } catch (error) {
+    console.error('Session error:', error);
+    throw error;
+  }
+}
+
 // Firebase helper functions
 async function saveAttendanceState(state) {
   try {
@@ -88,8 +239,17 @@ async function fetch_courses(auth_pref, token) {
     return resp.data.data;
   } catch (error) {
     console.error('Error fetching courses:', error.message);
-    if (error.response && error.response.data) {
+    if (error.response) {
       console.error('Server response:', error.response.data);
+      // If unauthorized, clear session
+      if (error.response.status === 401) {
+        console.log('Session expired, clearing session...');
+        currentSession = null;
+        // Clear session from Firebase
+        await set(ref(database, 'session'), null);
+        // Don't retry immediately - throw error and let check_attendance handle it
+        throw new Error('SESSION_EXPIRED');
+      }
     }
     throw error;
   }
@@ -110,8 +270,21 @@ async function send_telegram(msg) {
 function calculateAttendanceMessage(course, present, total, status) {
     const percentage = total > 0 ? (present / total * 100) : 0;
     
-    const statusEmoji = status === "Present" ? "✅" : "❌";
-    const statusText = status === "Present" ? "PRESENT" : "ABSENT";
+    let statusEmoji, statusText;
+    switch(status) {
+        case "Present":
+            statusEmoji = "✅";
+            statusText = "PRESENT";
+            break;
+        case "Absent":
+            statusEmoji = "❌";
+            statusText = "ABSENT";
+            break;
+        case "Unknown":
+            statusEmoji = "⚠️";
+            statusText = "UNKNOWN";
+            break;
+    }
     
     // Main header with course name
     let msg = `📚 *${course}*\n`;
@@ -158,8 +331,20 @@ async function check_attendance() {
   });
   console.log(`Checking attendance at ${currentTime}`);
   try {
-    const { auth_pref, token } = await login();
-    const courses = await fetch_courses(auth_pref, token);
+    let session;
+    try {
+      // Try to get or create session
+      session = await getSession();
+    } catch (error) {
+      if (error.message === 'SESSION_WAIT_SCHEDULED_TIME') {
+        console.log('Skipping attendance check until next scheduled login time');
+        return; // Exit early, wait for next scheduled check
+      }
+      throw error; // Re-throw other errors
+    }
+    
+    // Fetch courses using existing session
+    const courses = await fetch_courses(session.auth_pref, session.token);
     const prev_state = await getAttendanceState();
     const new_state = {};
 
@@ -176,10 +361,26 @@ async function check_attendance() {
         let status = "Unknown";
         const old_present = old.present || 0;
         const old_total = old.total || 0;
-        if (present > old_present && total > old_total) {
+
+        // Case 1: Total days same but present days increased
+        if (total === old_total && present > old_present) {
+          status = "Unknown";
+          console.log(`[${code}] Unusual: Present days increased without total days increasing`);
+        }
+        // Case 2: Both total and present increased
+        else if (total > old_total && present > old_present) {
           status = "Present";
-        } else if (present === old_present && total > old_total) {
+          console.log(`[${code}] Marked Present: Both total and present days increased`);
+        }
+        // Case 3: Only total increased, present stayed same
+        else if (total > old_total && present === old_present) {
           status = "Absent";
+          console.log(`[${code}] Marked Absent: Total days increased but present days unchanged`);
+        }
+        // Case 4: Any other unexpected changes
+        else {
+          status = "Unknown";
+          console.log(`[${code}] Unusual change detected - Old: ${old_present}/${old_total}, New: ${present}/${total}`);
         }
 
         const msg = calculateAttendanceMessage(c.courseName, present, total, status);
@@ -238,12 +439,12 @@ async function main() {
     console.log('Attendance checker starting...');
     await runCheck();
 
-    // Schedule to run every 30 minutes
-    cron.schedule('*/30 * * * *', runCheck, {
+    // Schedule to run every 5 minutes
+    cron.schedule('*/5 * * * *', runCheck, {
       timezone: "Asia/Kolkata" // Set timezone to IST
     });
 
-    console.log('Attendance checker scheduler started. Will check every 30 minutes during working hours (Mon-Fri, 10 AM - 10 PM IST)');
+    console.log('Attendance checker scheduler started. Will check every 5 minutes during working hours (Mon-Fri, 10 AM - 10 PM IST)');
     
     // Keep the process running
     process.on('SIGINT', () => {
