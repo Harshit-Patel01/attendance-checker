@@ -107,7 +107,7 @@ async function send_telegram(msg) {
   }
 }
 
-function calculate_attendance_message(course, present, total, status) {
+function calculateAttendanceMessage(course, present, total, status) {
     const percentage = total > 0 ? (present / total * 100) : 0;
     
     const statusEmoji = status === "Present" ? "✅" : "❌";
@@ -138,7 +138,15 @@ function calculate_attendance_message(course, present, total, status) {
     return msg;
 }
 
-module.exports = { calculateAttendanceMessage };
+// Export all necessary functions
+module.exports = {
+    calculateAttendanceMessage,
+    login,
+    fetch_courses,
+    send_telegram,
+    saveAttendanceState,
+    getAttendanceState
+};
 
 // Git functionality removed to simplify the bot
 
@@ -174,7 +182,7 @@ async function check_attendance() {
           status = "Absent";
         }
 
-        const msg = calculate_attendance_message(c.courseName, present, total, status);
+        const msg = calculateAttendanceMessage(c.courseName, present, total, status);
         await send_telegram(msg);
       }
     }

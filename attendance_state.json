@@ -1,27 +1,27 @@
 {
   "IT301L": {
-    "present": 5,
-    "total": 6
+    "present": 7,
+    "total": 8
   },
   "CS301L": {
     "present": 6,
     "total": 7
   },
   "MA105L": {
-    "present": 4,
-    "total": 5
+    "present": 5,
+    "total": 6
   },
   "AI103E": {
-    "present": 7,
-    "total": 9
-  },
-  "AI201B": {
-    "present": 11,
+    "present": 9,
     "total": 11
   },
+  "AI201B": {
+    "present": 12,
+    "total": 12
+  },
   "HS109L": {
-    "present": 4,
-    "total": 5
+    "present": 5,
+    "total": 6
   },
   "HS110L": {
     "present": 2,
@@ -32,8 +32,8 @@
     "total": 2
   },
   "CS302B": {
-    "present": 10,
-    "total": 10
+    "present": 11,
+    "total": 11
   },
   "IT301P": {
     "present": 2,
