@@ -107,7 +107,7 @@ async function send_telegram(msg) {
   }
 }
 
-function calculateAttendanceMessage(course, present, total, status) {
+function calculate_attendance_message(course, present, total, status) {
     const percentage = total > 0 ? (present / total * 100) : 0;
     
     const statusEmoji = status === "Present" ? "✅" : "❌";
